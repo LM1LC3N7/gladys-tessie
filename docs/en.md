@@ -1,61 +1,94 @@
-# Demo Devices Template
+# Tessie for Gladys
 
-This is the user documentation of the integration. Gladys re-hosts this file
-and shows a permanent **Documentation** link to it in the Configuration screen
-(in the user's language, with English as the fallback) — it is when
-configuring that the user needs it most. Keep the short onboarding hints in
-the `section` blocks of the manifest `config_schema`; put the long
-step-by-step (screenshots, troubleshooting…) here.
+Shows the Teslas of your **Tessie** account in Gladys: battery level, range,
+charging state and power, climate, inside and outside temperatures, doors,
+trunks, windows, lock, Sentry mode, tyre pressures, odometer and state. One
+command: **Lock**.
 
-## What you get
+Never tested with a real car. Unofficial, not affiliated with Tesla nor with
+Tessie.
 
-Six demo devices show up after installation: a weather station (real data
-from Open-Meteo), a switch, a dimmable light, a smart plug with power
-metering, a motion sensor and a camera.
+## What you need
 
-## Configuration
+- A Tessie account (a paid service, [tessie.com](https://tessie.com)) with
+  your car(s) in it.
+- An access token: in [dash.tessie.com](https://dash.tessie.com/settings/api),
+  Settings, API, **Generate Access Token**.
 
-1. Open the **Configuration** tab of the integration.
-2. Set the **latitude** and **longitude** the demo weather station should
-   observe (they default to Paris), and pick your temperature unit.
-   The **refresh interval** sets how often the weather station and the
-   plug's power are read: every 5 minutes by default, every minute at most.
-3. Save: the devices appear in the **Discovery** tab, ready to be added.
+## Setting up
 
-The **Prefer the local connection** toggle drives the demo plug: it reports
-the channel it actually uses as a badge (local or cloud), with an orange dot
-when it runs degraded (local refused, cloud fallback).
+1. Install the integration from the Gladys store.
+2. In its configuration, paste the token in **Tessie access token**. It is
+   kept by Gladys in its database, never shown again, and sent only to Tessie
+   (`api.tessie.com`), in a header.
+3. Save, then **Test the connection**: it answers with the number of cars
+   Tessie returns.
+4. In **Discovery**, create each car.
 
-## Actions
+## What is read, and how often
 
-- **Test the weather provider** — performs a live request to Open-Meteo and
-  shows the current temperature and humidity under the button.
-- **Identify a device** — pick one of your devices in the list and it will
-  signal itself (the demo light "blinks" in the logs).
+Every **read interval** (5 minutes by default, 60 s to 1 hour), Gladys reads
+the latest state Tessie knows of each car. Gladys **never asks Tessie to
+wake a car** to read it: a sleeping car keeps the values of its last wake.
 
-## Scenes
+Each group of values (charge, climate, vehicle, position) carries the time
+Tessie got it from the car:
 
-The integration adds its own cards to the scene editor (Gladys 5.1 or
-later), under the **Integrations** category:
+- less than 10 minutes old: shown as a new value (scenes may react);
+- older: shown with its own date (scenes do not react);
+- older than 2 hours: not shown;
+- a value already shown is not sent again.
 
-- **Motion detected** (trigger) — starts the scene when a demo motion sensor
-  sees something move. Optionally pick the sensor and what moved (person,
-  animal); left empty, any detection matches. The following actions can
-  read what moved with `{{triggerEvent.data.target}}`.
-- **Identify a device** (action) — makes the chosen device signal itself.
-  It returns whether the device could signal itself, so the following
-  actions can depend on it.
+Distances are in km (Tesla gives miles: converted), temperatures in °C,
+tyre pressures in bar. A value the car does not give stays unknown, never 0.
+The odometer never goes down.
 
-## Dashboard
+At most 10 cars are followed (the status says how many are left out).
 
-Add the **Demo status** widget to a dashboard: it shows the live
-temperature of the weather station and the power of the office plug, the
-connection the plug currently uses (orange when degraded) and the observed
-location. Its **Identify the light** button makes the demo light signal
-itself.
+## Lock
 
-## Troubleshooting
+The **Lock** feature of a car is the only command. Setting it to locked sends
+Tessie's lock command (Tessie wakes the car if needed). It is sent even when
+Tessie asked to wait, when Tessie refused the token for the reads, or during a
+read. It is tried up to 3 times within 3 minutes, and sent again after a
+restart of the integration within that time. It ends when the car confirms,
+or when a later read shows the car locked. Gladys reads the car again 5 s and
+20 s after it.
 
-The integration logs everything it does: check the integration logs from the
-Gladys UI (or `docker logs` on the host) with `LOG_LEVEL=debug` for the full
-detail.
+It is not sent when:
+
+- no valid token is configured yet (it waits up to 3 minutes for one);
+- the car is no longer in the Tessie account;
+- Tessie refuses the command (401, 403 or another 4xx than 429): it is not tried
+  again;
+- the 3 tries are used up, or the 3 minutes are over.
+
+**Unlocking is not available** (nor trunks, charge port, climate): setting the
+feature to unlocked is refused and nothing is sent.
+
+## The position (off by default)
+
+Turn on **Show the position of the car, rounded** to get a text feature with
+the latitude and longitude rounded to 3 decimals (about 100 m), shown only
+when Tessie's value is less than 10 minutes old. Turning it off erases the
+value shown. The navigation (destination), speed and heading are never read.
+
+## The status
+
+- **Connected to Tessie: N vehicle(s)**: all fine.
+- **Tessie refused the token (401/403)**: the reads stop until you save a new
+  token or the test button succeeds.
+- **Tessie asked to wait (429 or 5xx)**: the reads wait as long as Tessie
+  says (1 minute to 6 hours, kept across restarts).
+- **Tessie could not be read**: network or timeout; tried again later, the
+  wait doubling up to 1 hour.
+- **The configuration could not be read from Gladys**: tried again, spaced,
+  without end.
+- **The /data folder cannot be read**: the reads wait (a stop may be saved in
+  it), tried again every 10 s.
+
+## Privacy
+
+The token and the VIN are never written to the logs, the status, nor the
+integration's `/data` folder. A car is known to Gladys by a code derived from
+its VIN, never by the VIN itself.

@@ -1,0 +1,194 @@
+[
+  {
+    "name": "read while the token is refused",
+    "file": "src/app.js",
+    "from": "      (!test && this.isRefused()) ||",
+    "to": "      false ||"
+  },
+  {
+    "name": "read during a pause",
+    "file": "src/app.js",
+    "from": "      (this.pauseUntil !== undefined && this.pauseUntil > mono)\n",
+    "to": "      false\n"
+  },
+  {
+    "name": "section published twice",
+    "file": "src/app.js",
+    "from": "if (!replay && seen[section] !== undefined && s.ts <= seen[section]) continue;",
+    "to": "if (false) continue;"
+  },
+  {
+    "name": "future timestamp accepted",
+    "file": "src/app.js",
+    "from": "if (s.ts > (ref ?? wall) + TIMINGS.futureSkew) continue;",
+    "to": "if (false) continue;"
+  },
+  {
+    "name": "values over 2 h published",
+    "file": "src/app.js",
+    "from": "if (age !== undefined && age > TIMINGS.staleMax) {",
+    "to": "if (false) {"
+  },
+  {
+    "name": "old values published as new",
+    "file": "src/app.js",
+    "from": "const dated = replay || age === undefined || age > TIMINGS.fresh;",
+    "to": "const dated = replay || age === undefined;"
+  },
+  {
+    "name": "replay published as new",
+    "file": "src/app.js",
+    "from": "const dated = replay || age === undefined || age > TIMINGS.fresh;",
+    "to": "const dated = age === undefined || age > TIMINGS.fresh;"
+  },
+  {
+    "name": "no Date header: published as new",
+    "file": "src/app.js",
+    "from": "const dated = replay || age === undefined || age > TIMINGS.fresh;",
+    "to": "const dated = replay || (age !== undefined && age > TIMINGS.fresh);"
+  },
+  {
+    "name": "odometer may go down",
+    "file": "src/app.js",
+    "from": "if (highest !== undefined && value.state < highest) continue;",
+    "to": "if (false) continue;"
+  },
+  {
+    "name": "dated text published as new",
+    "file": "src/app.js",
+    "from": "          if (dated) continue;\n",
+    "to": "\n"
+  },
+  {
+    "name": "states over the budget",
+    "file": "src/app.js",
+    "from": "if (!this.takeBudget(states.length, mono)) {",
+    "to": "if (false) {"
+  },
+  {
+    "name": "states for devices not created",
+    "file": "src/app.js",
+    "from": "if (!this.created.has(ids.device)) return;",
+    "to": "if (false) return;"
+  },
+  {
+    "name": "unlock sent",
+    "file": "src/app.js",
+    "from": "if (value !== 1) {",
+    "to": "if (false) {"
+  },
+  {
+    "name": "any feature commanded",
+    "file": "src/app.js",
+    "from": "if (!match || match[2] !== 'locked') {",
+    "to": "if (!match) {"
+  },
+  {
+    "name": "lock done without the car's confirmation",
+    "file": "src/app.js",
+    "from": "if (res.body?.result === true) {",
+    "to": "if (res.body) {"
+  },
+  {
+    "name": "lock tried without end",
+    "file": "src/app.js",
+    "from": "if (entry.attempts >= TIMINGS.lockAttempts) {",
+    "to": "if (entry.attempts > 50) {"
+  },
+  {
+    "name": "lock retried after a 4xx",
+    "file": "src/app.js",
+    "from": "if (err?.kind === 'auth' || err?.kind === 'client') {",
+    "to": "if (false) {"
+  },
+  {
+    "name": "lock confirmed by an old read",
+    "file": "src/app.js",
+    "from": "vehicle.ts > entry.baseTs &&",
+    "to": "true &&"
+  },
+  {
+    "name": "lock confirmed by a read equal to before",
+    "file": "src/app.js",
+    "from": "!entry.baseLocked &&",
+    "to": "true &&"
+  },
+  {
+    "name": "no follow-up read after a lock",
+    "file": "src/app.js",
+    "from": "            this.finishLock(entry, 'confirmed');\n            this.followUp();",
+    "to": "            this.finishLock(entry, 'confirmed');"
+  },
+  {
+    "name": "refusal not kept",
+    "file": "src/app.js",
+    "from": "this.memory.refused = { fp: this.fingerprint(this.config.token), status: err.status };",
+    "to": "this.memory.refused = undefined;"
+  },
+  {
+    "name": "new token saved not tried",
+    "file": "src/app.js",
+    "from": "if (fromUser && previous?.token !== next.token && this.memory?.refused) {",
+    "to": "if (false) {"
+  },
+  {
+    "name": "Retry-After ignored",
+    "file": "src/app.js",
+    "from": "Math.max(err.retryAfter ?? fallback, TIMINGS.pauseMin),",
+    "to": "Math.max(fallback, TIMINGS.pauseMin),"
+  },
+  {
+    "name": "restart reads sooner",
+    "file": "src/app.js",
+    "from": "this.lastReadMono = mono - (wall - memory.lastRead);",
+    "to": "this.lastReadMono = undefined;"
+  },
+  {
+    "name": "unreadable /data taken for empty",
+    "file": "src/app.js",
+    "from": "if (this.dataTries < TIMINGS.dataTries) {",
+    "to": "if (false) {"
+  },
+  {
+    "name": "status not sent again on reconnection",
+    "file": "src/app.js",
+    "from": "if (this.statusText === undefined && this.lastStatus) {",
+    "to": "if (false) {"
+  },
+  {
+    "name": "position read when off",
+    "file": "src/car.js",
+    "from": "return option === undefined || config[option] === true;",
+    "to": "return true;"
+  },
+  {
+    "name": "bad token put in a header",
+    "file": "src/config.js",
+    "from": "Buffer.byteLength(token) > LIMITS.tokenBytes || BAD_TOKEN.test(token)",
+    "to": "Buffer.byteLength(token) > LIMITS.tokenBytes"
+  },
+  {
+    "name": "future seen kept from /data",
+    "file": "src/store.js",
+    "from": "ts > 0 && ts <= now + TIMINGS.futureSkew",
+    "to": "ts > 0"
+  },
+  {
+    "name": "pause from /data unbounded",
+    "file": "src/store.js",
+    "from": "until: Math.min(until, now + TIMINGS.pauseMax),",
+    "to": "until,"
+  },
+  {
+    "name": "oversized answer read",
+    "file": "src/tessie.js",
+    "from": "if (size > maxBytes) {",
+    "to": "if (false) {"
+  },
+  {
+    "name": "redirect followed",
+    "file": "src/tessie.js",
+    "from": "redirect: 'manual',",
+    "to": "redirect: 'follow',"
+  }
+]

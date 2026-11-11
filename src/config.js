@@ -1,45 +1,67 @@
 // -----------------------------------------------------------------------------
-// Integration configuration.
-//
-// The configuration is filled in by the user in Gladys, from the `config_schema`
-// declared in `gladys-assistant-integration.json`. The SDK fetches it for you
-// (`gladys.getConfig()`) and notifies you of every change through
-// `gladys.onConfigUpdated()`.
-//
-// This module only provides defaults and normalizes the received object, so the
-// rest of the code never has to deal with `undefined`.
+// The configuration typed in Gladys, checked and normalized. DEFAULT_CONFIG
+// mirrors the manifest defaults (test/manifest.test.js ties them).
+// The token is never logged nor shown: only `problem` says what is wrong.
 // -----------------------------------------------------------------------------
 
-// Defaults: they MUST stay consistent with the `default` values declared in the
-// `config_schema` of the manifest.
+import { LIMITS, SECOND, TIMINGS } from './constants.js';
+
 export const DEFAULT_CONFIG = {
-  latitude: 48.8566, // Paris
-  longitude: 2.3522,
-  unit: 'celsius', // 'celsius' | 'fahrenheit'
-  // Seconds between two reads of the polled sensors. Gladys polls at most once
-  // a minute: slower intervals are applied by skipping polls (see
-  // createPoller in src/devices/index.js).
-  poll_frequency: 300,
-  // Reserved key (NOT in config_schema): because the manifest declares both
-  // 'local' and 'cloud' in its `transports` field, Gladys shows a standard
-  // "Prefer the local connection" toggle and sends the user's choice here.
-  // Read-only for the integration; defaults to true.
-  GLADYS_PREFER_LOCAL: true,
+  api_token: '',
+  poll_interval: TIMINGS.pollDefault / SECOND,
+  publish_position: false,
+  language: 'fr',
 };
 
+// eslint-disable-next-line no-control-regex
+const BAD_TOKEN = /[\u0000-\u0020\u007f-\u009f\u2028\u2029]/;
+
+const bool = (value, fallback) =>
+  value === true || value === 'true'
+    ? true
+    : value === false || value === 'false'
+      ? false
+      : fallback;
+
 /**
- * Merge the user config with the defaults.
- * @param {Record<string, unknown>} raw config returned by the SDK
+ * -> { token, interval (ms), publishPosition, language, problem }; `problem`
+ * is 'noToken' or 'badToken' (nothing is sent then), undefined when fine.
  */
-export function normalizeConfig(raw = {}) {
+export function normalizeConfig(raw) {
+  const config = raw && typeof raw === 'object' ? raw : {};
+  let token = typeof config.api_token === 'string' ? config.api_token.trim() : '';
+  let problem;
+  if (token === '') {
+    problem = 'noToken';
+  } else if (Buffer.byteLength(token) > LIMITS.tokenBytes || BAD_TOKEN.test(token)) {
+    // A control byte, a space or a line break in the middle: never put in a header.
+    problem = 'badToken';
+    token = '';
+  }
+  const seconds = Number(config.poll_interval);
+  const interval =
+    typeof config.poll_interval === 'number' || /^\d{1,6}$/.test(String(config.poll_interval ?? ''))
+      ? Math.min(
+          Math.max(
+            Number.isFinite(seconds) ? Math.round(seconds) * SECOND : TIMINGS.pollDefault,
+            TIMINGS.pollMin,
+          ),
+          TIMINGS.pollMax,
+        )
+      : TIMINGS.pollDefault;
   return {
-    ...DEFAULT_CONFIG,
-    ...raw,
-    // Force the types: config may arrive as strings from a form.
-    latitude: Number(raw.latitude ?? DEFAULT_CONFIG.latitude),
-    longitude: Number(raw.longitude ?? DEFAULT_CONFIG.longitude),
-    poll_frequency: Number(raw.poll_frequency ?? DEFAULT_CONFIG.poll_frequency),
-    // The preference is a boolean; anything but an explicit false means true.
-    GLADYS_PREFER_LOCAL: raw.GLADYS_PREFER_LOCAL !== false,
+    token,
+    interval,
+    publishPosition: bool(config.publish_position, DEFAULT_CONFIG.publish_position),
+    language: config.language === 'en' ? 'en' : 'fr',
+    problem,
   };
 }
+
+/** Whether two normalized configurations ask for the same reads. */
+export const sameConfig = (a, b) =>
+  a.token === b.token &&
+  a.interval === b.interval &&
+  a.publishPosition === b.publishPosition &&
+  a.language === b.language &&
+  a.problem === b.problem;
