@@ -1,6 +1,6 @@
 {
   "name": "gladys-tessie",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Gladys Assistant external integration for Tessie (Tesla): battery, range, charge, climate, doors, tyres and state of each car of a Tessie account, read through the official Tessie API, and lock. Unofficial, not affiliated with Tesla or Tessie.",
   "type": "module",

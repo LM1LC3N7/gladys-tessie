@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-11
+
 ### Added
 
 - Teslas of a Tessie account read through the official Tessie API (latest
@@ -34,3 +36,6 @@ the notes of the version's GitHub Release.
   test; 429/5xx: pause from Retry-After (1 min to 6 h, persisted); at most
   10 cars and 250 states a minute.
 - "Test the connection" button; user guides in English and French.
+
+[Unreleased]: https://github.com/LM1LC3N7/gladys-tessie/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/LM1LC3N7/gladys-tessie/releases/tag/v0.1.1
