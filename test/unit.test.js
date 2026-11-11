@@ -9,7 +9,7 @@ import { normalizeConfig } from '../src/config.js';
 import { HOUR, MINUTE, TIMINGS } from '../src/constants.js';
 import { memoryStore, normalizeMemory, serializeMemory } from '../src/store.js';
 import { TessieError, parseRetryAfter, tessieRequest } from '../src/tessie.js';
-import { SELECTOR, START, VIN, vehicle } from './helpers/app.js';
+import { ID_KEY, START, VIN, vehicle } from './helpers/app.js';
 import { testClock } from './helpers/clock.js';
 
 const config = normalizeConfig({ api_token: 'x' });
@@ -43,9 +43,9 @@ test('a vehicle: strict values, sections dated, the VIN never in the id', () => 
   assert.deepEqual(v.sections.charge.values.battery_level, { state: 89 });
   assert.deepEqual(v.top.values.state, { text: 'online' });
   assert.equal(v.sections.drive.values.position, undefined, 'position off');
-  const pid = platformId(SELECTOR, VIN);
+  const pid = platformId(ID_KEY, VIN);
   assert.match(pid, /^[0-9a-f]{16}$/);
-  assert.notEqual(pid, platformId('other-selector', VIN), 'keyed by the selector');
+  assert.notEqual(pid, platformId('08'.repeat(32), VIN), 'keyed by the random key of /data');
   assert.equal(parseVehicle({ vin: 'short', last_state: {} }, config), undefined);
   assert.equal(parseVehicle({ vin: 'IIIIIIIIIIIIIIIII', last_state: {} }, config), undefined);
   assert.equal(parseVehicle({ vin: '../../x/command/u', last_state: {} }, config), undefined);
@@ -121,6 +121,13 @@ test('/data: bounded on reading, never a prototype key, a future date brought to
     undefined,
     'no salt, no refusal',
   );
+  const used = normalizeMemory(
+    { locks: { ['d'.repeat(16)]: { until: now + MINUTE, attempts: 3 } } },
+    now,
+  );
+  assert.deepEqual(used.locks, {}, 'a lock with its 3 tries used is never sent again');
+  assert.equal(normalizeMemory({ idKey: 'ab' }, now).idKey, undefined);
+  assert.equal(normalizeMemory({ idKey: 'ab'.repeat(32) }, now).idKey, 'ab'.repeat(32));
   const empty = normalizeMemory(null, now);
   assert.deepEqual(serializeMemory({ ...empty, salt: 'x' }), { salt: 'x', seen: {}, locks: {} });
 });

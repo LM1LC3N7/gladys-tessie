@@ -1,6 +1,8 @@
 // -----------------------------------------------------------------------------
 // What must survive a restart, in /data (the only writable place of the
 // container), in tessie-state.json, readable by the container user only (0600):
+//   - `idKey`: the random 32-byte key of the platform ids (HMAC of the VIN).
+//     Not a secret of the user: losing it only renames the cars in Gladys.
 //   - `salt` + `refused`: after Tessie refused the token, an 8-bit HMAC of it
 //     (keyed by the random salt): the same token is not tried again after a
 //     restart; a new token (another fingerprint, or any token saved in the
@@ -92,6 +94,7 @@ const PID = /^[0-9a-f]{16}$/;
 
 /** The persisted state, repaired and bounded against the wall clock `now`. */
 export function normalizeMemory(raw, now) {
+  const idKey = own(raw, 'idKey');
   const salt = own(raw, 'salt');
   const goodSalt = typeof salt === 'string' && /^[0-9a-f]{32}$/.test(salt) ? salt : undefined;
   const fp = own(own(raw, 'refused'), 'fp');
@@ -129,6 +132,7 @@ export function normalizeMemory(raw, now) {
     }
   }
   return {
+    idKey: typeof idKey === 'string' && /^[0-9a-f]{64}$/.test(idKey) ? idKey : undefined,
     salt: goodSalt,
     refused:
       goodSalt && typeof fp === 'string' && /^[0-9a-f]{2}$/.test(fp)
@@ -152,6 +156,7 @@ export function normalizeMemory(raw, now) {
 }
 
 export const serializeMemory = (m) => ({
+  ...(m.idKey ? { idKey: m.idKey } : {}),
   salt: m.salt,
   ...(m.refused ? { refused: { fp: m.refused.fp, status: m.refused.status } } : {}),
   ...(m.pause ? { pause: { until: m.pause.until, status: m.pause.status } } : {}),

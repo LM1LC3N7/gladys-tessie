@@ -19,7 +19,9 @@ export const VIN = '5YJ3E7EB0KF123456';
 export const VIN2 = '7SAYGDEE9PF654321';
 export const START = Date.parse('2026-03-01T12:00:00Z');
 export const CONFIG = { api_token: TOKEN };
-export const pidOf = (vin = VIN) => platformId(SELECTOR, vin);
+/** The id key the app makes with the test `random` (bytes of 7). */
+export const ID_KEY = '07'.repeat(32);
+export const pidOf = (vin = VIN) => platformId(ID_KEY, vin);
 export const DEVICE = (vin = VIN) => `ext:${SELECTOR}:car:${pidOf(vin)}`;
 export const F = (key, vin = VIN) => `${DEVICE(vin)}:${key}`;
 

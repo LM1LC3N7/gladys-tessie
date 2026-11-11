@@ -137,4 +137,21 @@ export const LOCK = {
   readOnly: 'This feature is read only: nothing sent.',
   unknownCar: 'This car is not in the Tessie account (or not read yet): nothing sent.',
   noToken: 'No valid Tessie token: lock kept a few minutes, sent as soon as a token is read.',
+  noData:
+    '/data not read yet (the ids of the cars): lock kept a few minutes, sent once it is read.',
+  /** The answer to Gladys when the lock is not confirmed within ~3 s. */
+  outcome: (outcome) =>
+    ({
+      unknownCar: 'This car is not in the Tessie account: nothing sent.',
+      pending: 'Lock sent, no confirmation yet: Gladys reads the car again in 5 s and 20 s.',
+      notSentRetrying: 'Nothing sent yet (Tessie not reached): tried again within 3 minutes.',
+      retrying:
+        'Lock sent, not confirmed by the car: tried again (3 tries at most within 3 minutes).',
+      notConfirmed: 'Lock sent, not confirmed by the car after the tries.',
+      expiredNothingSent: 'Nothing sent: no token or /data could be read within 3 minutes.',
+      failed: 'Lock failed: see the logs.',
+    })[outcome] ??
+    (/^refused \d+$/.test(outcome)
+      ? `Tessie refused the lock (${outcome.slice(8)}): not tried again.`
+      : 'Nothing sent yet: waiting for a token or /data, a few minutes at most.'),
 };

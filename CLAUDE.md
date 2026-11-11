@@ -50,8 +50,9 @@ test/                             node --test, SDK fake Gladys, scripted fetch, 
 
 - **External ids are forever.** Build them with
   `gladys.externalIds(type, platformId)`. Here the platform id is an HMAC of
-  the VIN keyed by the selector (`platformId()` in `src/car.js`): never change
-  it, nor a feature key, a `config_schema` or `actions` key.
+  the VIN keyed by the random `idKey` of /data (`platformId()` in
+  `src/car.js`): never change it, nor a feature key, a `config_schema` or
+  `actions` key.
 - **The container rootfs is read-only.** Write only under `/data`, the one
   writable volume. Never log, show or keep the token nor the VIN.
 - **Versions belong to the Release workflow** (Actions → Release). Never edit

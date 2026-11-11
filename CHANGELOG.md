@@ -20,7 +20,11 @@ the notes of the version's GitHub Release.
   state.
 - Lock command (the only one): sent whatever the pause or the token refusal,
   up to 3 tries in 3 minutes, kept in `/data` across a restart, then two
-  follow-up reads. Unlock, trunks and charge port are refused (nothing sent).
+  follow-up reads; confirmed only by the car or by a read dated after the
+  command; anything else shown to Gladys as an error. Unlock, trunks and
+  charge port are refused (nothing sent).
+- Car ids made from the VIN with a random key kept in `/data` (the VIN cannot
+  be found back from them).
 - Position rounded to about 100 m, off by default; turning it off erases the
   value shown.
 - Freshness from Tessie's own timestamps against the `Date` of its answers:

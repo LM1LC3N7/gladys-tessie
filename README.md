@@ -24,23 +24,26 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (TessieApp)
   5 min by default): the state Tessie already knows; Gladys never sends a wake request
   (only the lock may make Tessie wake the car).
   Every value read strictly; null, text or out of range is unknown, never 0.
-- **Devices**: `ext:<selector>:car:<16 hex of an HMAC of the VIN keyed by the
-selector>`; features `<device>:<key>` (keys in `src/car.js`, frozen). The
-  VIN is never in an id, a log, a status nor `/data`.
+- **Devices**: `ext:<selector>:car:<16 hex of an HMAC of the VIN keyed by a
+random 32-byte key kept in /data>`; features `<device>:<key>` (keys in
+  `src/car.js`, frozen). The VIN is never in an id, a log, a status nor
+  `/data`; logs name a car by its rank. Losing `/data` renames the cars.
 - **Freshness**: each section (charge, climate, vehicle, drive) is dated by
   its own timestamp, compared with the `Date` of Tessie's answer: up to 10 min
   old, published as new; older, dated (`created_at`, starts no scene); over
   2 h, not published; never published twice (`/data`).
 - **Lock** (protective): sent whatever the pause, the refused token, a read
   in flight or `/data`; Gladys acked within ~3 s; up to 3 tries in 3 minutes,
-  kept in `/data` across a restart; done when the car confirms or a later
-  read shows it locked. Unlock and the other commands are refused, nothing
-  sent.
+  kept in `/data` across a restart; done when the car confirms, or a read
+  dated after the first POST shows it locked while it was known unlocked.
+  Anything short of a confirmation reaches Gladys as an error. Unlock and the
+  other commands are refused, nothing sent.
 - **Failures**: 401/403 on `/vehicles` stops the reads (persisted, no
   automatic try) until a new token or a successful test; 429/5xx pause the
   reads (Retry-After, 1 min to 6 h, persisted); network errors double the
   interval up to 1 h; the configuration unreadable from Gladys is read again,
-  spaced, without end; `/data` unreadable is never taken for empty.
+  spaced, without end; `/data` unreadable is never taken for empty (no read
+  until it is read).
 
 Written from Tessie's public API documentation only (tessie-api, the Python
 client, is GPL-3.0 and was not read). Structure of the sibling

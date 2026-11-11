@@ -78,7 +78,6 @@ export const TIMINGS = {
   configRetry: [5 * SECOND, 15 * SECOND, MINUTE, 5 * MINUTE],
   /** A write of /data is waited for this long at most on the path of a read. */
   saveWait: 5 * SECOND,
-  /** /data unreadable: read again this often, and give up keeping it after this many tries. */
+  /** /data unreadable: read again this often (never taken for empty: the ids depend on it). */
   dataRetry: 10 * SECOND,
-  dataTries: 6,
 };

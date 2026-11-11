@@ -55,13 +55,18 @@ réveille la voiture si besoin). Elle part même quand Tessie a demandé
 d'attendre, quand Tessie a refusé le jeton pour les lectures, ou pendant une
 lecture. Elle est essayée 3 fois au plus en 3 minutes, et renvoyée après un
 redémarrage de l'intégration dans ce délai. Elle se termine quand la voiture
-confirme, ou quand une lecture suivante montre la voiture verrouillée. Gladys
-relit la voiture 5 s et 20 s après.
+confirme, ou quand une lecture datée d'après la commande montre la voiture
+verrouillée alors qu'elle était connue déverrouillée avant (une lecture plus
+ancienne ne compte jamais). Gladys relit la voiture 5 s et 20 s après. Quand
+la voiture n'a pas confirmé en 3 secondes environ, Gladys affiche une erreur
+qui dit ce qui est parti et ce qui suit.
 
 Elle ne part pas quand :
 
 - aucun jeton valide n'est encore configuré (elle en attend un 3 minutes au
   plus) ;
+- le dossier `/data` de l'intégration est illisible (la clé des identifiants
+  des voitures y est ; elle attend 3 minutes au plus) ;
 - la voiture n'est plus dans le compte Tessie ;
 - Tessie refuse la commande (401, 403 ou autre 4xx que 429) : elle n'est pas
   réessayée ;
@@ -90,11 +95,15 @@ fonctionnalité texte avec la latitude et la longitude arrondies à 3 décimales
   tard, l'attente doublant jusqu'à 1 heure.
 - **La configuration n'a pas pu être lue depuis Gladys** : nouvel essai,
   espacé, sans fin.
-- **Le dossier /data est illisible** : les lectures attendent (un arrêt peut y
-  être enregistré), nouvel essai toutes les 10 s.
+- **Le dossier /data est illisible** : les lectures attendent (la clé des
+  identifiants des voitures et un arrêt peuvent y être enregistrés), nouvel
+  essai toutes les 10 s, sans fin.
 
 ## Vie privée
 
 Le jeton et le VIN ne sont jamais écrits dans les journaux, le statut, ni le
-dossier `/data` de l'intégration. Gladys connaît une voiture par un code tiré
-de son VIN, jamais par le VIN lui-même.
+dossier `/data` de l'intégration ; les journaux nomment une voiture par son
+rang (#1, #2...). Gladys connaît une voiture par un code tiré de son VIN avec
+une clé aléatoire gardée dans `/data` : sans cette clé, le VIN ne se retrouve
+pas depuis le code. Si `/data` est perdu (intégration réinstallée), la clé
+change et les voitures reviennent dans Découverte comme de nouveaux appareils.

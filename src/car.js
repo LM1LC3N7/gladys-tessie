@@ -13,8 +13,8 @@
 // climate_state, vehicle_state, drive_state): the section's `timestamp`
 // (ms) dates its values (src/app.js decides on it).
 //
-// Never read: the VIN (only an HMAC of it, keyed by the integration
-// selector, is the platform id; the VIN stays in memory to address the
+// Never read: the VIN (only an HMAC of it, keyed by a random key kept in
+// /data, is the platform id; the VIN stays in memory to address the
 // commands), the navigation (active_route_*), speed, heading, shift state,
 // the user id. The position is read only when the configuration allows it,
 // rounded to POSITION_DECIMALS before anything keeps it.
@@ -353,9 +353,13 @@ export const allowed = (key, config) => {
   return option === undefined || config[option] === true;
 };
 
-/** The platform id of a car: 16 hex of an HMAC of the VIN keyed by the selector (never the VIN). */
-export const platformId = (selector, vin) =>
-  createHmac('sha256', `gladys-tessie:${selector}`).update(vin).digest('hex').slice(0, 16);
+/**
+ * The platform id of a car: 16 hex of an HMAC-SHA256 of the VIN keyed by a
+ * random 32-byte key made once and kept in /data (`idKey`): the VIN cannot be
+ * found back from the id without that key. Losing /data only renames the cars.
+ */
+export const platformId = (idKey, vin) =>
+  createHmac('sha256', Buffer.from(idKey, 'hex')).update(vin).digest('hex').slice(0, 16);
 
 /** A section timestamp: integer ms after 2015, or undefined. */
 const timestamp = (raw) => (Number.isInteger(raw) && raw > 1_420_000_000_000 ? raw : undefined);

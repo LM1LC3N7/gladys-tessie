@@ -98,20 +98,8 @@
   {
     "name": "lock retried after a 4xx",
     "file": "src/app.js",
-    "from": "if (err?.kind === 'auth' || err?.kind === 'client') {",
+    "from": "if (err?.kind === 'auth' || (err?.kind === 'client' && !TRANSIENT.has(err.status))) {",
     "to": "if (false) {"
-  },
-  {
-    "name": "lock confirmed by an old read",
-    "file": "src/app.js",
-    "from": "vehicle.ts > entry.baseTs &&",
-    "to": "true &&"
-  },
-  {
-    "name": "lock confirmed by a read equal to before",
-    "file": "src/app.js",
-    "from": "!entry.baseLocked &&",
-    "to": "true &&"
   },
   {
     "name": "no follow-up read after a lock",
@@ -142,12 +130,6 @@
     "file": "src/app.js",
     "from": "this.lastReadMono = mono - (wall - memory.lastRead);",
     "to": "this.lastReadMono = undefined;"
-  },
-  {
-    "name": "unreadable /data taken for empty",
-    "file": "src/app.js",
-    "from": "if (this.dataTries < TIMINGS.dataTries) {",
-    "to": "if (false) {"
   },
   {
     "name": "status not sent again on reconnection",
@@ -190,5 +172,89 @@
     "file": "src/tessie.js",
     "from": "redirect: 'manual',",
     "to": "redirect: 'follow',"
+  },
+  {
+    "name": "lock confirmed by a read older than the POST",
+    "file": "src/app.js",
+    "from": "      vehicle.ts > entry.sentServerAt &&\n",
+    "to": "      true &&\n"
+  },
+  {
+    "name": "lock confirmed by a read equal to the state before",
+    "file": "src/app.js",
+    "from": "      entry.baseUnlocked === true &&\n",
+    "to": "      true &&\n"
+  },
+  {
+    "name": "VIN regex not anchored",
+    "file": "src/car.js",
+    "from": "export const VIN = /^[A-HJ-NPR-Z0-9]{17}$/;",
+    "to": "export const VIN = /[A-HJ-NPR-Z0-9]{17}/;"
+  },
+  {
+    "name": "Retry-After of the lock ignored",
+    "file": "src/app.js",
+    "from": "const delay = error?.retryAfter !== undefined ? Math.max(base, error.retryAfter) : base;",
+    "to": "const delay = base;"
+  },
+  {
+    "name": "lock kept past its window",
+    "file": "src/app.js",
+    "from": "if (now + delay >= entry.untilMono) {",
+    "to": "if (false) {"
+  },
+  {
+    "name": "stop leaves requests in flight",
+    "file": "src/app.js",
+    "from": "    this.aborter.abort();\n",
+    "to": "\n"
+  },
+  {
+    "name": "lock from /data with its tries used",
+    "file": "src/store.js",
+    "from": "attempts < TIMINGS.lockAttempts",
+    "to": "attempts < 50"
+  },
+  {
+    "name": "lock waiting for a token never ends",
+    "file": "src/app.js",
+    "from": "if (entry.waiting) this.finishLock(entry, 'expiredNothingSent');",
+    "to": "if (false) this.finishLock(entry, 'expiredNothingSent');"
+  },
+  {
+    "name": "409 taken for a refusal",
+    "file": "src/app.js",
+    "from": "(err?.kind === 'client' && !TRANSIENT.has(err.status))",
+    "to": "err?.kind === 'client'"
+  },
+  {
+    "name": "lock logs and retries after stop",
+    "file": "src/app.js",
+    "from": "        } catch (err) {\n          if (this.stopped) return;",
+    "to": "        } catch (err) {"
+  },
+  {
+    "name": "lock asked before /data not kept",
+    "file": "src/app.js",
+    "from": "if (!entry.done && !memory.locks[entry.pid]) {",
+    "to": "if (false) {"
+  },
+  {
+    "name": "id key used without being saved",
+    "file": "src/app.js",
+    "from": "if (saved !== true) {",
+    "to": "if (false) {"
+  },
+  {
+    "name": "id key regenerated when /data unreadable",
+    "file": "src/app.js",
+    "from": "    if (failed) {\n      // Unreadable is not empty",
+    "to": "    if (false) {\n      // Unreadable is not empty"
+  },
+  {
+    "name": "lock failure reported as success",
+    "file": "src/app.js",
+    "from": "if (outcome === 'confirmed' || outcome === 'confirmedByRead') return outcome;",
+    "to": "return outcome;"
   }
 ]

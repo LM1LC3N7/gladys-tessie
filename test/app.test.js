@@ -462,12 +462,26 @@ test('/data unreadable: no read (a refusal may be in it), tried every 10 s, one 
   assert.equal(reads(tessie), 1);
 });
 
-test('/data unreadable for a minute: runs without it and never writes over it', async (t) => {
+test('/data unreadable for long: still no read, no Discovery, never a new identity', async (t) => {
   const store = memoryStore(null, { unreadable: true });
-  const { tessie, clock } = await stopAll(t, await setup({ store }));
-  await advance(clock, 60 * SECOND);
-  assert.equal(reads(tessie), 1);
+  const { gladys, tessie, clock } = await stopAll(t, await setup({ store }));
+  await advance(clock, 5 * MINUTE);
+  assert.equal(reads(tessie), 0);
   assert.equal(store.saves, 0);
+  assert.equal(gladys.fake.discoveredDevices.length, 0);
+  assert.match(gladys.fake.connectionStatus.message.en, /\/data folder cannot be read/);
+});
+
+test('a new id key that cannot be saved is never used', async (t) => {
+  const store = memoryStore(null, { failing: true });
+  const { gladys, tessie, clock } = await stopAll(t, await setup({ store }));
+  await advance(clock, MINUTE);
+  assert.equal(reads(tessie), 0);
+  assert.equal(gladys.fake.discoveredDevices.length, 0);
+  store.failing = false;
+  await advance(clock, 10 * SECOND);
+  assert.equal(reads(tessie), 1);
+  assert.match(store.data.idKey, /^[0-9a-f]{64}$/);
 });
 
 test('a slow /data never holds a read nor a lock', async (t) => {
@@ -609,8 +623,8 @@ test('lock answered late: Gladys acked within 3.5 s, the answer handled behind',
   await settle(10);
   await clock.advance(TIMINGS.lockAck);
   const ack = await within(pending, 2000);
-  assert.equal(ack.success, true);
-  assert.equal(ack.data, 'pending');
+  assert.equal(ack.success, false, 'never a success without confirmation');
+  assert.match(ack.error, /sent, no confirmation yet/);
   assert.ok(TIMINGS.lockAck <= 3500);
   release();
   await settle(20);
@@ -710,8 +724,9 @@ test('lock with the configuration not read yet: sent as soon as it is read', asy
 });
 
 test('lock with a failing /data save: still sent', async (t) => {
-  const store = memoryStore(null, { failing: true });
+  const store = memoryStore();
   const { gladys, tessie } = await stopAll(t, await setup({ store }));
+  store.failing = true;
   await gladys.fake.setValue(gladys.fake.devices[0], lockedFeature(gladys), 1);
   assert.equal(locks(tessie), 1);
 });
@@ -873,4 +888,168 @@ test('a new token saved is tried even when its fingerprint matches the refused o
   await gladys.fake.configUpdated({ api_token: other });
   await advance(clock, 0);
   assert.equal(reads(tessie), 1);
+});
+
+test('S1: lock asked during the first read, car shown locked 20 min ago: the POST goes, no read proves it', async (t) => {
+  const clock = testClock({ start: START });
+  const tessie = createTessie(clock);
+  tessie.ts[VIN] = START - 20 * MINUTE;
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  tessie.on = async (req) => {
+    if (req.method === 'GET') await gate;
+    return undefined;
+  };
+  tessie.lockAnswer = () => json({ result: false }, { date: clock.now() });
+  const { gladys, logger } = await stopAll(t, await setup({ clock, tessie }));
+  const press = gladys.fake.setValue(gladys.fake.devices[0], lockedFeature(gladys), 1);
+  await settle(10);
+  release();
+  await settle(20);
+  await clock.advance(TIMINGS.lockAck);
+  const ack = await within(press, 2000);
+  assert.equal(ack.success, false);
+  assert.equal(locks(tessie), 1, 'the POST went');
+  await advance(clock, 2 * MINUTE);
+  assert.equal(locks(tessie), 3, 'an old read never ends the tries');
+  assert.ok(!logger.lines.some((l) => /confirmedByRead/.test(l)));
+});
+
+test('S2: restart with a lock in /data, car shown locked before: sent again, never ended by that read', async (t) => {
+  const clock = testClock({ start: START });
+  const tessie = createTessie(clock);
+  tessie.ts[VIN] = START - 20 * MINUTE;
+  tessie.lockAnswer = () => json({ result: false }, { date: clock.now() });
+  const store = memoryStore({
+    idKey: '07'.repeat(32),
+    locks: { [pidOf()]: { until: START + 2 * MINUTE, attempts: 1 } },
+  });
+  const { logger } = await stopAll(t, await setup({ clock, tessie, store }));
+  await advance(clock, 2 * MINUTE);
+  assert.equal(locks(tessie), 2, '2 more tries: 3 in all');
+  assert.ok(!logger.lines.some((l) => /confirmedByRead/.test(l)));
+  assert.equal(store.data.locks[pidOf()], undefined);
+});
+
+test('a VIN that is not 17 plain characters is ignored: no device, no command', async (t) => {
+  const bad = [
+    '//evil.example/x',
+    '5YJ3E7EB0KF12345/',
+    '../5YJ3E7EB0KF1234',
+    '5YJ3E7EB0KF1234567',
+    '5yj3e7eb0kf123456',
+    `${VIN}\n`,
+    `x${VIN}`,
+  ];
+  const clock = testClock({ start: START });
+  const tessie = createTessie(clock);
+  tessie.vehicles = bad;
+  const { gladys } = await stopAll(t, await setup({ clock, tessie }));
+  assert.equal(gladys.fake.discoveredDevices.length, 0);
+  const ack = await gladys.fake.setValue(gladys.fake.devices[0], lockedFeature(gladys), 1);
+  assert.equal(ack.success, false);
+  assert.equal(locks(tessie), 0);
+  assert.ok(tessie.requests.every((r) => new URL(r.url).host === 'api.tessie.com'));
+});
+
+test('lock: a 429 Retry-After is waited for; beyond the window, the tries end at once', async (t) => {
+  const clock = testClock({ start: START });
+  const tessie = createTessie(clock);
+  tessie.over[VIN] = { vstate: { locked: false } };
+  tessie.lockAnswer = () =>
+    json({}, { status: 429, date: clock.now(), headers: { 'retry-after': '25' } });
+  const store = memoryStore();
+  const { gladys } = await stopAll(t, await setup({ clock, tessie, store }));
+  await gladys.fake.setValue(gladys.fake.devices[0], lockedFeature(gladys), 1);
+  await advance(clock, 24 * SECOND);
+  assert.equal(locks(tessie), 1, 'not before 25 s');
+  await advance(clock, 2 * SECOND);
+  assert.equal(locks(tessie), 2);
+  tessie.lockAnswer = () =>
+    json({}, { status: 429, date: clock.now(), headers: { 'retry-after': '600' } });
+  await advance(clock, 60 * SECOND);
+  assert.equal(locks(tessie), 3);
+  await advance(clock, SECOND);
+  // 3 tries used anyway; a fresh lock with a Retry-After past its window ends at once.
+  await gladys.fake.setValue(gladys.fake.devices[0], lockedFeature(gladys), 1);
+  await advance(clock, SECOND);
+  assert.equal(store.data.locks[pidOf()], undefined, 'ended at once, not kept 3 minutes');
+  await advance(clock, 5 * MINUTE);
+  assert.equal(locks(tessie), 4);
+});
+
+test('lock: 409 is passing (tried again), 403 ends it; the error reaches Gladys', async (t) => {
+  const clock = testClock({ start: START });
+  const tessie = createTessie(clock);
+  tessie.over[VIN] = { vstate: { locked: false } };
+  tessie.lockAnswer = () => json({}, { status: 409, date: clock.now() });
+  const { gladys } = await stopAll(t, await setup({ clock, tessie }));
+  let ack = await gladys.fake.setValue(gladys.fake.devices[0], lockedFeature(gladys), 1);
+  assert.match(ack.error, /Lock sent, not confirmed by the car: tried again/);
+  await advance(clock, 11 * SECOND);
+  assert.equal(locks(tessie), 2);
+  await advance(clock, 5 * MINUTE);
+  tessie.lockAnswer = () => json({}, { status: 403, date: clock.now() });
+  ack = await gladys.fake.setValue(gladys.fake.devices[0], lockedFeature(gladys), 1);
+  assert.match(ack.error, /Tessie refused the lock \(403\)/);
+  const n = locks(tessie);
+  await advance(clock, 2 * MINUTE);
+  assert.equal(locks(tessie), n);
+});
+
+test('lock waiting for a token: ended at its window, removed from /data', async (t) => {
+  const store = memoryStore();
+  const { gladys, clock, tessie } = await stopAll(t, await setup({ config: {}, store }));
+  const ack = await gladys.fake.setValue(gladys.fake.devices[0], lockedFeature(gladys), 1);
+  assert.match(ack.error, /Nothing sent yet/);
+  assert.ok(store.data.locks[pidOf()]);
+  await advance(clock, TIMINGS.lockWindow + SECOND);
+  assert.equal(store.data.locks[pidOf()], undefined);
+  assert.equal(tessie.requests.length, 0);
+});
+
+test('lock asked before /data is read: kept in /data once read, sent then', async (t) => {
+  const store = memoryStore({ idKey: '07'.repeat(32) }, { unreadable: true });
+  const { gladys, clock, tessie } = await stopAll(t, await setup({ store }));
+  const ack = await gladys.fake.setValue(gladys.fake.devices[0], lockedFeature(gladys), 1);
+  assert.equal(ack.success, false);
+  assert.equal(locks(tessie), 0);
+  store.unreadable = false;
+  store.save = async (data) => {
+    store.data = JSON.parse(JSON.stringify(data));
+    if (data.locks[pidOf()]) store.keptLock = true;
+  };
+  await advance(clock, 10 * SECOND);
+  assert.ok(store.keptLock, 'written to /data');
+  assert.equal(locks(tessie), 1);
+});
+
+test('stop with a lock in flight: the request is aborted, no timer left', async () => {
+  const clock = testClock({ start: START });
+  const tessie = createTessie(clock);
+  let aborted = false;
+  tessie.on = (req) => {
+    if (req.method !== 'POST') return undefined;
+    return new Promise((_, reject) => {
+      tessie.signal.addEventListener('abort', () => {
+        aborted = true;
+        reject(new DOMException('aborted', 'AbortError'));
+      });
+    });
+  };
+  const inner = tessie.fetch;
+  tessie.fetch = (url, init) => {
+    tessie.signal = init.signal;
+    return inner(url, init);
+  };
+  const { gladys, app, logger } = await setup({ clock, tessie });
+  gladys.fake.setValue(gladys.fake.devices[0], lockedFeature(gladys), 1).catch(() => {});
+  await settle(10);
+  await app.stop();
+  await settle(20);
+  assert.ok(aborted);
+  assert.equal(clock.pending, 0);
+  assert.ok(!logger.lines.some((l) => /no confirmation/.test(l)));
 });

@@ -28,6 +28,7 @@ import { fileStore, normalizeMemory, serializeMemory } from './store.js';
 import { TessieError, tessieRequest } from './tessie.js';
 
 const SECTION_ORDER = Object.keys(SECTIONS);
+const TRANSIENT = new Set([408, 409, 425]);
 
 export class TessieApp {
   constructor({
@@ -53,8 +54,6 @@ export class TessieApp {
     this.config = undefined;
     /** /data content (normalized), undefined until read. */
     this.memory = undefined;
-    this.dataBroken = false;
-    this.dataTries = 0;
     this.dataLoading = false;
     this.configTries = 0;
 
@@ -242,31 +241,42 @@ export class TessieApp {
     // Slower than a few seconds is not "empty": tried again later.
     const result = await this.bounded(this.loadPromise, TIMINGS.saveWait);
     this.dataLoading = false;
-    let raw = result?.value;
+    const raw = result?.value;
     const failed = !result || result.failed === true;
     if (this.stopped || this.memory) return;
     if (failed) {
-      this.dataTries += 1;
-      if (this.dataTries < TIMINGS.dataTries) {
-        await this.setStatus('dataUnreadable');
-        this.timers.clearTimeout(this.dataTimer);
-        this.dataTimer = this.timers.setTimeout(async () => {
-          this.dataTimer = undefined;
-          await this.loadData();
-          this.kick();
-        }, TIMINGS.dataRetry);
-        return;
-      }
-      // Unreadable for a minute: run without it, and never write over it.
-      this.logger.warn('/data unreadable: running without the saved state, never writing over it');
-      this.dataBroken = true;
-      raw = null;
+      // Unreadable is not empty: the ids of the cars (idKey) are in it. Tried again, without end.
+      await this.dataUnavailable();
+      return;
     }
     const wall = this.now();
     const mono = this.monotonic();
     const memory = normalizeMemory(raw, wall);
     memory.salt ??= this.random(16).toString('hex');
+    if (!memory.idKey) {
+      // A new key (first start, or /data lost): kept on disk before any id is made from it.
+      memory.idKey = this.random(32).toString('hex');
+      const saved = await this.bounded(
+        this.store.save(serializeMemory(memory)).then(
+          () => true,
+          () => false,
+        ),
+        TIMINGS.saveWait,
+      );
+      if (this.stopped || this.memory) return;
+      if (saved !== true) {
+        await this.dataUnavailable();
+        return;
+      }
+    }
     this.memory = memory;
+    // Locks asked before /data was read are kept in it too.
+    for (const entry of this.locks.values()) {
+      if (!entry.done && !memory.locks[entry.pid]) {
+        memory.locks[entry.pid] = { until: entry.untilWall, attempts: entry.attempts };
+        this.saveMemory();
+      }
+    }
     if (memory.pause) {
       this.pauseUntil = mono + Math.min(memory.pause.until - wall, TIMINGS.pauseMax);
     }
@@ -282,10 +292,22 @@ export class TessieApp {
         });
       }
     }
+    this.resumeLocks();
+  }
+
+  async dataUnavailable() {
+    await this.setStatus('dataUnreadable');
+    if (this.stopped) return;
+    this.timers.clearTimeout(this.dataTimer);
+    this.dataTimer = this.timers.setTimeout(async () => {
+      this.dataTimer = undefined;
+      await this.loadData();
+      this.kick();
+    }, TIMINGS.dataRetry);
   }
 
   saveMemory() {
-    if (!this.memory || this.dataBroken) return Promise.resolve(false);
+    if (!this.memory) return Promise.resolve(false);
     return this.store.save(serializeMemory(this.memory)).then(
       () => true,
       (err) => {
@@ -511,6 +533,14 @@ export class TessieApp {
   }
 
   request({ method = 'GET', path, query, timeout }) {
+    return this.rawRequest({ method, path, query, timeout }).then((res) => {
+      // Tessie's clock against ours: the time of a lock is told in Tessie's time.
+      if (res.date !== undefined) this.skew = res.date - this.now();
+      return res;
+    });
+  }
+
+  rawRequest({ method, path, query, timeout }) {
     return tessieRequest({
       fetch: this.fetch,
       timers: this.timers,
@@ -561,13 +591,12 @@ export class TessieApp {
 
   /** The answer of GET /vehicles: the cars, the Discovery, the states. -> the number of cars. */
   async handleVehicles(res, gen) {
-    const selector = this.gladys.selector;
     const cars = new Map();
     let ignored = 0;
     for (const entry of res.body.results.slice(0, 100)) {
       const parsed = parseVehicle(entry, this.config);
       if (!parsed) continue;
-      const pid = platformId(selector, parsed.vin);
+      const pid = platformId(this.memory.idKey, parsed.vin);
       if (cars.has(pid)) continue;
       if (cars.size >= LIMITS.vehicles) {
         ignored += 1;
@@ -761,6 +790,8 @@ export class TessieApp {
       const untilWall = this.now() + TIMINGS.lockWindow;
       if (this.memory) {
         this.memory.locks[pid] = { until: untilWall, attempts: 0 };
+        // Written at once, never awaited: a lock is never held by /data.
+        this.saveMemory();
       }
       entry = this.startLock(pid, { untilWall });
     }
@@ -771,12 +802,15 @@ export class TessieApp {
     // Answered once the first try is over (or ~3 s at most): the tries go on behind.
     const outcome = await Promise.race([
       entry.finished,
-      entry.firstTry.then(() => 'retrying'),
+      entry.firstTry.then(() =>
+        entry.waiting ? 'waiting' : entry.sent > 0 ? 'retrying' : 'notSentRetrying',
+      ),
       ack,
     ]);
     this.timers.clearTimeout(timer);
-    if (outcome === 'unknownCar') throw new Error(LOCK.unknownCar);
-    return outcome;
+    if (outcome === 'confirmed' || outcome === 'confirmedByRead') return outcome;
+    // Anything else reaches the user as an error: what was sent, and what is going on.
+    throw new Error(LOCK.outcome(outcome));
   }
 
   startLock(pid, { untilMono, untilWall, attempts = 0 }) {
@@ -786,9 +820,12 @@ export class TessieApp {
       attempts,
       untilMono: untilMono ?? mono + TIMINGS.lockWindow,
       untilWall: untilWall ?? this.now() + TIMINGS.lockWindow,
-      baseTs: this.cars.get(pid)?.snap.sections.vehicle?.ts ?? 0,
-      // Locked already when asked: a read equal to that proves nothing (only `result: true` does).
-      baseLocked: this.cars.get(pid)?.snap.sections.vehicle?.values.locked?.state === 1,
+      // Set at the first POST of this entry (never restored from /data): Tessie's time
+      // then, and whether the car was known unlocked. Before a POST, no read proves anything.
+      sentServerAt: undefined,
+      /** POSTs that may have reached Tessie. */
+      sent: 0,
+      baseUnlocked: undefined,
       done: false,
       waiting: false,
       running: false,
@@ -815,14 +852,22 @@ export class TessieApp {
       this.saveMemory();
     }
     const level = outcome === 'confirmed' || outcome === 'confirmedByRead' ? 'info' : 'warn';
-    this.logger[level](`Lock of car ${entry.pid}: ${outcome}`);
+    this.logger[level](`Lock of car ${this.label(entry.pid)}: ${outcome}`);
     entry.resolve(outcome);
     entry.firstTried();
   }
 
+  /** A car named in the logs by its rank, never by its id (an HMAC of the VIN). */
+  label(pid) {
+    const rank = [...this.cars.keys()].indexOf(pid);
+    return rank < 0 ? '#?' : `#${rank + 1}`;
+  }
+
   /**
-   * A read showing the car locked, newer than when the lock was asked and
-   * different from the state then (unlocked or unknown), ends the tries.
+   * A read ends the tries only if it shows the car locked, dated after the
+   * first POST of this entry (in Tessie's time), and the car was known
+   * unlocked then: an older read, or one equal to the state before, proves
+   * nothing (only `result: true` does).
    */
   lockSeen(car) {
     const entry = this.locks.get(car.pid);
@@ -831,8 +876,9 @@ export class TessieApp {
       entry &&
       !entry.done &&
       vehicle &&
-      vehicle.ts > entry.baseTs &&
-      !entry.baseLocked &&
+      // Before any POST (or without Tessie's time) sentServerAt is undefined: the comparison is false.
+      vehicle.ts > entry.sentServerAt &&
+      entry.baseUnlocked === true &&
       vehicle.values.locked?.state === 1
     ) {
       this.finishLock(entry, 'confirmedByRead');
@@ -858,6 +904,8 @@ export class TessieApp {
   }
 
   followUp() {
+    // Also checked by every caller after its await: kept as the last guard before a timer.
+    if (this.stopped) return;
     for (const delay of TIMINGS.followUp) {
       const timer = this.timers.setTimeout(() => {
         this.followUps.delete(timer);
@@ -873,7 +921,7 @@ export class TessieApp {
     try {
       await this.lockLoop(entry);
     } catch (err) {
-      this.logger.error(`Lock of car ${entry.pid} failed: ${err?.message ?? 'error'}`);
+      this.logger.error(`Lock of car ${this.label(entry.pid)} failed: ${err?.message ?? 'error'}`);
       this.finishLock(entry, 'failed');
     } finally {
       entry.running = false;
@@ -893,9 +941,9 @@ export class TessieApp {
         await this.readConfig();
         if (entry.done || this.stopped) return;
       }
-      if (!this.config?.token) {
-        // Kept until a token is read (resumeLocks), within its window.
-        this.logger.warn(LOCK.noToken);
+      if (!this.config?.token || !this.memory) {
+        // Kept until a token and /data (the ids of the cars) are read (resumeLocks), within its window.
+        this.logger.warn(this.memory ? LOCK.noToken : LOCK.noData);
         entry.waiting = true;
         this.timers.clearTimeout(entry.timer);
         entry.timer = this.timers.setTimeout(
@@ -924,6 +972,10 @@ export class TessieApp {
           this.memory.locks[entry.pid].attempts = entry.attempts;
           this.saveMemory();
         }
+        if (entry.sentServerAt === undefined) {
+          entry.baseUnlocked = car.snap.sections.vehicle?.values.locked?.state === 0;
+          entry.sentServerAt = this.skew !== undefined ? this.now() + this.skew : undefined;
+        }
         try {
           const res = await this.request({
             method: 'POST',
@@ -931,24 +983,28 @@ export class TessieApp {
             query: { wait_for_completion: true, max_attempts: 3 },
             timeout: TIMINGS.lockTimeout,
           });
+          if (this.stopped) return;
           answered = true;
           if (res.body?.result === true) {
             this.finishLock(entry, 'confirmed');
             this.followUp();
             return;
           }
-          this.logger.warn(`Lock of car ${entry.pid}: sent, not confirmed by the car`);
+          this.logger.warn(`Lock of car ${this.label(entry.pid)}: sent, not confirmed by the car`);
         } catch (err) {
+          if (this.stopped) return;
           error = err;
           this.logger.warn(
-            `Lock of car ${entry.pid}: ${err?.sent === false ? 'nothing sent' : 'sent, no confirmation'} (${err?.reason ?? 'error'})`,
+            `Lock of car ${this.label(entry.pid)}: ${err?.sent === false ? 'nothing sent' : 'sent, no confirmation'} (${err?.reason ?? 'error'})`,
           );
-          if (err?.kind === 'auth' || err?.kind === 'client') {
+          // A refusal ends the tries; 408, 409, 425 (and 429, 5xx) are passing: tried again.
+          if (err?.kind === 'auth' || (err?.kind === 'client' && !TRANSIENT.has(err.status))) {
             this.finishLock(entry, `refused ${err.status}`);
             return;
           }
         }
         if (answered || error?.sent !== false) {
+          entry.sent += 1;
           this.followUp();
         }
       } else {
@@ -988,7 +1044,7 @@ export class TessieApp {
     const results = Array.isArray(res.body?.results) ? res.body.results.slice(0, 100) : [];
     for (const entry of results) {
       const parsed = parseVehicle(entry, this.config);
-      if (parsed && platformId(this.gladys.selector, parsed.vin) === pid) {
+      if (parsed && platformId(this.memory.idKey, parsed.vin) === pid) {
         const car = {
           pid,
           vin: parsed.vin,

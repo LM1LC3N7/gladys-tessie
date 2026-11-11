@@ -52,12 +52,16 @@ Tessie's lock command (Tessie wakes the car if needed). It is sent even when
 Tessie asked to wait, when Tessie refused the token for the reads, or during a
 read. It is tried up to 3 times within 3 minutes, and sent again after a
 restart of the integration within that time. It ends when the car confirms,
-or when a later read shows the car locked. Gladys reads the car again 5 s and
-20 s after it.
+or when a read dated after the command shows the car locked while it was
+known unlocked before (an older read never counts). Gladys reads the car again
+5 s and 20 s after it. When the car has not confirmed within about 3 seconds,
+Gladys shows an error saying what was sent and what goes on.
 
 It is not sent when:
 
 - no valid token is configured yet (it waits up to 3 minutes for one);
+- the integration's `/data` folder cannot be read (the key of the car ids is
+  in it; it waits up to 3 minutes);
 - the car is no longer in the Tessie account;
 - Tessie refuses the command (401, 403 or another 4xx than 429): it is not tried
   again;
@@ -84,11 +88,14 @@ value shown. The navigation (destination), speed and heading are never read.
   wait doubling up to 1 hour.
 - **The configuration could not be read from Gladys**: tried again, spaced,
   without end.
-- **The /data folder cannot be read**: the reads wait (a stop may be saved in
-  it), tried again every 10 s.
+- **The /data folder cannot be read**: the reads wait (the key of the car ids
+  and a stop may be saved in it), tried again every 10 s, without end.
 
 ## Privacy
 
 The token and the VIN are never written to the logs, the status, nor the
-integration's `/data` folder. A car is known to Gladys by a code derived from
-its VIN, never by the VIN itself.
+integration's `/data` folder; the logs name a car by its rank (#1, #2...). A
+car is known to Gladys by a code made from its VIN with a random key kept in
+`/data`: without that key, the VIN cannot be found back from the code. If
+`/data` is lost (integration reinstalled), the key changes and the cars come
+back in Discovery as new devices.
