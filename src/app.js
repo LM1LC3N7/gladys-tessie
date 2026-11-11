@@ -172,6 +172,8 @@ export class TessieApp {
   async applyConfig(next, { fromUser = false } = {}) {
     const previous = this.config;
     this.config = next;
+    // The key of the car ids comes with the config, /data read or not.
+    this.ensureKey();
     if (previous && sameConfig(previous, next)) {
       // Saved again unchanged: no read sooner, no new status.
       return;
@@ -297,17 +299,21 @@ export class TessieApp {
    * config wins (it goes with the token and the devices); a key missing in
    * one place is copied to it; none anywhere (first start) makes a new one,
    * used at once even if neither copy can be written yet (tried again).
-   * Without the config read, or with /data unreadable and no key in the
-   * config, nothing is decided (a key may be in what was not read).
+   * The key of the config is taken as soon as the config is read, /data read
+   * or not. Without it, a key is made only once /data was read without one
+   * too (a key may be in what was not read).
    */
   ensureKey() {
-    if (!this.config || !this.memory) return;
-    const known = this.config.idKey ?? this.memory.idKey;
+    if (!this.config) return;
+    const known = this.config.idKey ?? this.memory?.idKey ?? this.idKey;
+    if (known === undefined && !this.memory) return;
     const key = known ?? this.random(32).toString('hex');
     // A new key: the ids of devices made before (key lost) cannot match.
-    if (this.idKey !== key) this.keyFresh = known === undefined;
-    this.idKey = key;
-    if (this.memory.idKey !== key) {
+    if (this.idKey !== key) {
+      this.keyFresh = known === undefined;
+      this.idKey = key;
+    }
+    if (this.memory && this.memory.idKey !== key) {
       this.memory.idKey = key;
       this.saveMemory();
     }

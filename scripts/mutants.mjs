@@ -92,11 +92,19 @@ try {
       }
       // `also`: more edits of the same file, for guards that cover each other.
       let mutated = text.replace(m.from, m.to);
+      let badAlso = false;
       for (const more of m.also ?? []) {
         if (mutated.split(more.from).length !== 2) {
-          console.log(`#${i} BADMATCH(also) ${m.name}`);
+          badAlso = true;
+          break;
         }
         mutated = mutated.replace(more.from, more.to);
+      }
+      if (badAlso) {
+        // Half applied, a mutant would be judged wrongly: a failure, never run.
+        console.log(`#${i} BADMATCH(also) ${m.name}`);
+        survivors += 1;
+        continue;
       }
       writeFileSync(file, mutated);
       const { code } = await run(dir);

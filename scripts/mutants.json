@@ -254,8 +254,8 @@
   {
     "name": "key in Gladys ignored",
     "file": "src/app.js",
-    "from": "const known = this.config.idKey ?? this.memory.idKey;",
-    "to": "const known = this.memory.idKey;"
+    "from": "const known = this.config.idKey ?? this.memory?.idKey ?? this.idKey;",
+    "to": "const known = this.memory?.idKey ?? this.idKey;"
   },
   {
     "name": "key not kept in Gladys",
@@ -286,5 +286,17 @@
         "to": "  followUp() {"
       }
     ]
+  },
+  {
+    "name": "key of the config not taken at config read",
+    "file": "src/app.js",
+    "from": "    // The key of the car ids comes with the config, /data read or not.\n    this.ensureKey();\n",
+    "to": "\n"
+  },
+  {
+    "name": "key of the config waits for /data",
+    "file": "src/app.js",
+    "from": "if (known === undefined && !this.memory) return;",
+    "to": "if (!this.memory) return;"
   }
 ]

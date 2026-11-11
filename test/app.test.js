@@ -1125,3 +1125,36 @@ test('stop while the answer of the lock is being read: no follow-up timer, no lo
   assert.equal(clock.pending, 0);
   assert.ok(!ctx.logger.lines.some((l) => /not confirmed by the car/.test(l)));
 });
+
+test('S7b: /data unreadable, key in Gladys, two cars: the lock of the second goes to that car', async (t) => {
+  const clock = testClock({ start: START });
+  const tessie = createTessie(clock);
+  tessie.vehicles = [VIN, VIN2];
+  const store = memoryStore(null, { unreadable: true });
+  const config = { ...CONFIG, tessie_id_key: '07'.repeat(32) };
+  const devices = [createdCar(), createdCar({ vin: VIN2 })];
+  const { gladys } = await stopAll(t, await setup({ clock, tessie, store, config, devices }));
+  assert.equal(reads(tessie), 0);
+  const second = gladys.fake.devices.find((d) => d.external_id === DEVICE(VIN2));
+  const feature = second.features.find((f) => f.external_id === F('locked', VIN2));
+  const ack = await gladys.fake.setValue(second, feature, 1);
+  assert.equal(ack.success, true);
+  const posts = tessie.requests.filter((r) => r.method === 'POST');
+  assert.deepEqual(
+    posts.map((r) => r.path),
+    [`/${VIN2}/command/lock`],
+  );
+});
+
+test('S9d: /data unreadable, key in Gladys, the only car of the account is another one: refused, nothing sent', async (t) => {
+  const clock = testClock({ start: START });
+  const tessie = createTessie(clock);
+  tessie.vehicles = [VIN2];
+  const store = memoryStore(null, { unreadable: true });
+  const config = { ...CONFIG, tessie_id_key: '07'.repeat(32) };
+  const { gladys } = await stopAll(t, await setup({ clock, tessie, store, config }));
+  const ack = await gladys.fake.setValue(gladys.fake.devices[0], lockedFeature(gladys), 1);
+  assert.equal(ack.success, false);
+  assert.match(ack.error, /not in the Tessie account: nothing sent/);
+  assert.equal(locks(tessie), 0);
+});
