@@ -69,9 +69,9 @@ const minutes = (ms) => Math.max(1, Math.ceil(ms / 60_000));
 
 /** Status of the Configuration screen: key -> (params) -> { en, fr }. */
 export const STATUS = {
-  connected: ({ count, ignored }) => ({
-    en: `Connected to Tessie: ${count} vehicle(s)${ignored ? `, ${ignored} more ignored (limit reached)` : ''}.`,
-    fr: `Connecté à Tessie : ${count} véhicule(s)${ignored ? `, ${ignored} de plus ignoré(s) (limite atteinte)` : ''}.`,
+  connected: ({ count, ignored, unwritable }) => ({
+    en: `Connected to Tessie: ${count} vehicle(s)${ignored ? `, ${ignored} more ignored (limit reached)` : ''}.${unwritable ? ' The /data folder cannot be written: pauses and pending locks are not kept across a restart.' : ''}`,
+    fr: `Connecté à Tessie : ${count} véhicule(s)${ignored ? `, ${ignored} de plus ignoré(s) (limite atteinte)` : ''}.${unwritable ? " Le dossier /data n'est pas inscriptible : pauses et verrouillages en attente ne sont pas gardés après un redémarrage." : ''}`,
   }),
   noToken: () => ({
     en: 'Type your Tessie access token (dash.tessie.com, Settings, API).',
@@ -137,8 +137,6 @@ export const LOCK = {
   readOnly: 'This feature is read only: nothing sent.',
   unknownCar: 'This car is not in the Tessie account (or not read yet): nothing sent.',
   noToken: 'No valid Tessie token: lock kept a few minutes, sent as soon as a token is read.',
-  noData:
-    '/data not read yet (the ids of the cars): lock kept a few minutes, sent once it is read.',
   /** The answer to Gladys when the lock is not confirmed within ~3 s. */
   outcome: (outcome) =>
     ({
@@ -148,10 +146,10 @@ export const LOCK = {
       retrying:
         'Lock sent, not confirmed by the car: tried again (3 tries at most within 3 minutes).',
       notConfirmed: 'Lock sent, not confirmed by the car after the tries.',
-      expiredNothingSent: 'Nothing sent: no token or /data could be read within 3 minutes.',
+      expiredNothingSent: 'Nothing sent: no token could be read within 3 minutes.',
       failed: 'Lock failed: see the logs.',
     })[outcome] ??
     (/^refused \d+$/.test(outcome)
       ? `Tessie refused the lock (${outcome.slice(8)}): not tried again.`
-      : 'Nothing sent yet: waiting for a token or /data, a few minutes at most.'),
+      : 'Nothing sent yet: waiting for a token, a few minutes at most.'),
 };

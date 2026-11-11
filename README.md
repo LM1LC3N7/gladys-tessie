@@ -25,9 +25,10 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (TessieApp)
   (only the lock may make Tessie wake the car).
   Every value read strictly; null, text or out of range is unknown, never 0.
 - **Devices**: `ext:<selector>:car:<16 hex of an HMAC of the VIN keyed by a
-random 32-byte key kept in /data>`; features `<device>:<key>` (keys in
-  `src/car.js`, frozen). The VIN is never in an id, a log, a status nor
-  `/data`; logs name a car by its rank. Losing `/data` renames the cars.
+random 32-byte key>`; the key is kept in the integration's own config in
+  Gladys (`setConfig`, outside the schema, never shown) and in `/data`;
+  features `<device>:<key>` (keys in `src/car.js`, frozen). The VIN is never
+  in an id, a log, a status nor `/data`; logs name a car by its rank.
 - **Freshness**: each section (charge, climate, vehicle, drive) is dated by
   its own timestamp, compared with the `Date` of Tessie's answer: up to 10 min
   old, published as new; older, dated (`created_at`, starts no scene); over

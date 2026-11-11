@@ -1,8 +1,9 @@
 // -----------------------------------------------------------------------------
 // What must survive a restart, in /data (the only writable place of the
 // container), in tessie-state.json, readable by the container user only (0600):
-//   - `idKey`: the random 32-byte key of the platform ids (HMAC of the VIN).
-//     Not a secret of the user: losing it only renames the cars in Gladys.
+//   - `idKey`: the random 32-byte key of the platform ids (HMAC of the VIN),
+//     a copy of the one kept in the integration's config in Gladys.
+//     Not a secret of the user.
 //   - `salt` + `refused`: after Tessie refused the token, an 8-bit HMAC of it
 //     (keyed by the random salt): the same token is not tried again after a
 //     restart; a new token (another fingerprint, or any token saved in the

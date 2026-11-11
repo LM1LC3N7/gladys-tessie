@@ -23,8 +23,8 @@ the notes of the version's GitHub Release.
   follow-up reads; confirmed only by the car or by a read dated after the
   command; anything else shown to Gladys as an error. Unlock, trunks and
   charge port are refused (nothing sent).
-- Car ids made from the VIN with a random key kept in `/data` (the VIN cannot
-  be found back from them).
+- Car ids made from the VIN with a random key kept in Gladys and in `/data`
+  (the VIN cannot be found back from them; the lock never waits for `/data`).
 - Position rounded to about 100 m, off by default; turning it off erases the
   value shown.
 - Freshness from Tessie's own timestamps against the `Date` of its answers:

@@ -472,16 +472,57 @@ test('/data unreadable for long: still no read, no Discovery, never a new identi
   assert.match(gladys.fake.connectionStatus.message.en, /\/data folder cannot be read/);
 });
 
-test('a new id key that cannot be saved is never used', async (t) => {
+test('S10: /data readable but not writable from the first start: the reads go on, the status says so', async (t) => {
   const store = memoryStore(null, { failing: true });
   const { gladys, tessie, clock } = await stopAll(t, await setup({ store }));
-  await advance(clock, MINUTE);
-  assert.equal(reads(tessie), 0);
-  assert.equal(gladys.fake.discoveredDevices.length, 0);
-  store.failing = false;
-  await advance(clock, 10 * SECOND);
   assert.equal(reads(tessie), 1);
-  assert.match(store.data.idKey, /^[0-9a-f]{64}$/);
+  assert.equal(gladys.fake.lastState(F('battery_level')), 89);
+  assert.match(gladys.fake.connectionStatus.message.en, /\/data folder cannot be written/);
+  assert.equal(gladys.fake.config.tessie_id_key, '07'.repeat(32), 'the key kept in Gladys');
+  await advance(clock, 5 * MINUTE);
+  assert.equal(reads(tessie), 2);
+});
+
+test('S7: restart with /data unreadable: the key comes from Gladys, the lock goes at once', async (t) => {
+  const store = memoryStore(null, { unreadable: true });
+  const config = { ...CONFIG, tessie_id_key: '07'.repeat(32) };
+  const { gladys, tessie } = await stopAll(t, await setup({ store, config }));
+  assert.equal(reads(tessie), 0, 'no read while /data is unreadable');
+  const ack = await gladys.fake.setValue(gladys.fake.devices[0], lockedFeature(gladys), 1);
+  assert.equal(ack.success, true);
+  assert.equal(locks(tessie), 1);
+});
+
+test('S9: /data lost, the key in Gladys: the same devices, states and lock', async (t) => {
+  const config = { ...CONFIG, tessie_id_key: '07'.repeat(32) };
+  const ctx = await stopAll(
+    t,
+    await setup({ store: memoryStore(), config, random: (n) => Buffer.alloc(n, 9) }),
+  );
+  assert.equal(ctx.gladys.fake.discoveredDevices[0].external_id, DEVICE());
+  assert.equal(ctx.gladys.fake.lastState(F('battery_level')), 89);
+  assert.equal(ctx.store.data.idKey, '07'.repeat(32));
+  const ack = await ctx.gladys.fake.setValue(
+    ctx.gladys.fake.devices[0],
+    lockedFeature(ctx.gladys),
+    1,
+  );
+  assert.equal(ack.success, true);
+});
+
+test('S9b: both copies of the key lost, one car and one device: the lock still goes', async (t) => {
+  const ctx = await stopAll(
+    t,
+    await setup({ store: memoryStore(), random: (n) => Buffer.alloc(n, 9) }),
+  );
+  assert.notEqual(ctx.gladys.fake.discoveredDevices[0].external_id, DEVICE(), 'new ids');
+  const ack = await ctx.gladys.fake.setValue(
+    ctx.gladys.fake.devices[0],
+    lockedFeature(ctx.gladys),
+    1,
+  );
+  assert.equal(ack.success, true);
+  assert.equal(locks(ctx.tessie), 1);
 });
 
 test('a slow /data never holds a read nor a lock', async (t) => {
@@ -735,7 +776,8 @@ test('lock of a car no longer in the account: refused, nothing sent', async (t) 
   const clock = testClock({ start: START });
   const tessie = createTessie(clock);
   tessie.vehicles = [VIN2];
-  const { gladys } = await stopAll(t, await setup({ clock, tessie }));
+  const config = { ...CONFIG, tessie_id_key: '07'.repeat(32) };
+  const { gladys } = await stopAll(t, await setup({ clock, tessie, config }));
   const ack = await gladys.fake.setValue(gladys.fake.devices[0], lockedFeature(gladys), 1);
   assert.equal(ack.success, false);
   assert.equal(locks(tessie), 0);
@@ -1010,20 +1052,17 @@ test('lock waiting for a token: ended at its window, removed from /data', async 
   assert.equal(tessie.requests.length, 0);
 });
 
-test('lock asked before /data is read: kept in /data once read, sent then', async (t) => {
+test('lock asked before /data is read: sent at once, kept in /data once read', async (t) => {
   const store = memoryStore({ idKey: '07'.repeat(32) }, { unreadable: true });
   const { gladys, clock, tessie } = await stopAll(t, await setup({ store }));
   const ack = await gladys.fake.setValue(gladys.fake.devices[0], lockedFeature(gladys), 1);
-  assert.equal(ack.success, false);
-  assert.equal(locks(tessie), 0);
+  assert.equal(locks(tessie), 1, 'never waits for /data');
+  assert.equal(ack.success, true);
+  tessie.lockAnswer = () => json({ result: false }, { date: clock.now() });
+  await gladys.fake.setValue(gladys.fake.devices[0], lockedFeature(gladys), 1);
   store.unreadable = false;
-  store.save = async (data) => {
-    store.data = JSON.parse(JSON.stringify(data));
-    if (data.locks[pidOf()]) store.keptLock = true;
-  };
   await advance(clock, 10 * SECOND);
-  assert.ok(store.keptLock, 'written to /data');
-  assert.equal(locks(tessie), 1);
+  assert.ok(store.data.locks[pidOf()], 'the pending lock written to /data');
 });
 
 test('stop with a lock in flight: the request is aborted, no timer left', async () => {
@@ -1052,4 +1091,37 @@ test('stop with a lock in flight: the request is aborted, no timer left', async 
   assert.ok(aborted);
   assert.equal(clock.pending, 0);
   assert.ok(!logger.lines.some((l) => /no confirmation/.test(l)));
+});
+
+test('stop while the answer of the lock is being read: no follow-up timer, no log', async () => {
+  const clock = testClock({ start: START });
+  const tessie = createTessie(clock);
+  let app;
+  tessie.lockAnswer = () => {
+    const bytes = new TextEncoder().encode('{"result": false}');
+    let sent = false;
+    return new Response(
+      new ReadableStream({
+        async pull(controller) {
+          if (!sent) {
+            sent = true;
+            controller.enqueue(bytes);
+            return;
+          }
+          await app.stop();
+          controller.close();
+        },
+      }),
+      { status: 200, headers: { date: new Date(clock.now()).toUTCString() } },
+    );
+  };
+  const ctx = await setup({ clock, tessie });
+  app = ctx.app;
+  ctx.gladys.fake
+    .setValue(ctx.gladys.fake.devices[0], lockedFeature(ctx.gladys), 1)
+    .catch(() => {});
+  await settle(40);
+  assert.equal(locks(tessie), 1);
+  assert.equal(clock.pending, 0);
+  assert.ok(!ctx.logger.lines.some((l) => /not confirmed by the car/.test(l)));
 });

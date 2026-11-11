@@ -90,7 +90,15 @@ try {
         survivors += 1;
         continue;
       }
-      writeFileSync(file, text.replace(m.from, m.to));
+      // `also`: more edits of the same file, for guards that cover each other.
+      let mutated = text.replace(m.from, m.to);
+      for (const more of m.also ?? []) {
+        if (mutated.split(more.from).length !== 2) {
+          console.log(`#${i} BADMATCH(also) ${m.name}`);
+        }
+        mutated = mutated.replace(more.from, more.to);
+      }
+      writeFileSync(file, mutated);
       const { code } = await run(dir);
       const verdict = code === 0 ? 'SURVIVED' : code === 'HUNG' ? 'HUNG' : 'killed';
       if (verdict !== 'killed') survivors += 1;

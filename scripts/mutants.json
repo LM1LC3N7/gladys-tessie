@@ -240,12 +240,6 @@
     "to": "if (false) {"
   },
   {
-    "name": "id key used without being saved",
-    "file": "src/app.js",
-    "from": "if (saved !== true) {",
-    "to": "if (false) {"
-  },
-  {
     "name": "id key regenerated when /data unreadable",
     "file": "src/app.js",
     "from": "    if (failed) {\n      // Unreadable is not empty",
@@ -256,5 +250,41 @@
     "file": "src/app.js",
     "from": "if (outcome === 'confirmed' || outcome === 'confirmedByRead') return outcome;",
     "to": "return outcome;"
+  },
+  {
+    "name": "key in Gladys ignored",
+    "file": "src/app.js",
+    "from": "const known = this.config.idKey ?? this.memory.idKey;",
+    "to": "const known = this.memory.idKey;"
+  },
+  {
+    "name": "key not kept in Gladys",
+    "file": "src/app.js",
+    "from": "if (this.config.idKey !== key && !this.keyPushing) {",
+    "to": "if (false) {"
+  },
+  {
+    "name": "fallback with a known key",
+    "file": "src/app.js",
+    "from": "      (!this.idKey || this.keyFresh) &&",
+    "to": "      true &&"
+  },
+  {
+    "name": "no fallback without the key",
+    "file": "src/app.js",
+    "from": "      (!this.idKey || this.keyFresh) &&",
+    "to": "      false &&"
+  },
+  {
+    "name": "both stop guards of the lock answer removed",
+    "file": "src/app.js",
+    "from": "          if (this.stopped) return;\n          answered = true;",
+    "to": "          answered = true;",
+    "also": [
+      {
+        "from": "  followUp() {\n    // Also checked by every caller after its await: kept as the last guard before a timer.\n    if (this.stopped) return;",
+        "to": "  followUp() {"
+      }
+    ]
   }
 ]

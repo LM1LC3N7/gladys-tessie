@@ -26,23 +26,29 @@ Handoff document: what is done, what was decided, what comes next.
 - Version 0.1.0 set by hand (package.json, lock, manifest, docker_image).
 - Written from developer.tessie.com only; tessie-api (GPL-3.0) never read
   (brief of lot 22). No `keywords` / `countries` in the manifest (world).
-- Identity (review r1 I1): `car:<16 hex of HMAC-SHA256(VIN)>`, keyed by a
-  random 32-byte `idKey` made once and saved in `/data` before any id is made
-  from it (not a secret of the user: losing it only renames the cars). The
-  VIN cannot be found back from the id; it stays in memory only (path of the
-  lock command); logs name a car by its rank. `/data` unreadable: no read and
-  no new key, tried every 10 s without end.
+- Identity (reviews r1 I1, r2): `car:<16 hex of HMAC-SHA256(VIN)>`, keyed by
+  a random 32-byte key kept twice: in the integration's config in Gladys
+  (`tessie_id_key`, written by `setConfig`, outside the schema: the core never
+  shows it nor sends it to the form) and in `/data` (`idKey`). The config
+  wins; a missing copy is written again; none (first start) makes a new key,
+  used at once even when neither copy can be written yet. The lock never
+  depends on /data (the key comes with the token). Both copies lost: the
+  lock still goes when the account has one car and Gladys one Tessie device.
+  The VIN cannot be found back from the id; it stays in memory only (path of
+  the lock command); logs name a car by its rank. `/data` unreadable: no read
+  (a stop may be in it), tried every 10 s without end; not writable: reads go
+  on, the status says so.
 - Read only except Lock (brief): `locked` is the only writable feature
   (`electrical-vehicle-command/lock`, never a switch); 1 sends the lock, 0 is
   refused ("not available"), nothing sent. Unlock, trunks, charge port,
   climate, wake: not in v1.
 - Lock is protective: independent of the 429/5xx pause, of a refused token
   (it is still sent: a refusal only stops the automatic reads), of a read in
-  flight (its own request), of a failing `/data` write (never awaited). A car
-  not read yet is looked up by a `GET /vehicles` at once. Without a token
-  (configuration not read yet) or `/data` not read yet (the id key), it waits,
-  at most 3 minutes, and leaves when they are read; a lock asked before `/data`
-  is read is added to it then.
+  flight (its own request), of `/data` (unreadable, unwritable: never
+  awaited). A car not read yet is looked up by a `GET /vehicles` at once.
+  Without a token (configuration not read yet) it waits, at most 3 minutes,
+  and leaves when the token is read; a lock asked before `/data` is read is
+  added to it then.
   3 tries at most (10 s, 30 s apart, longer if Retry-After says so), kept in
   `/data` so a restart sends it again within its window. Done when Tessie
   answers `result: true` (`wait_for_completion=true`), or (review r1 B1) a
@@ -76,9 +82,8 @@ Handoff document: what is done, what was decided, what comes next.
   minute (a section over the budget waits for the next read).
 - Position off by default, rounded to 3 decimals, only when fresh; turned
   off, erased ('' text). Navigation, speed, heading never read.
-- `/data` unreadable: no read (the id key, a refusal or a pause may be in
-  it), read again every 10 s, one read at a time, without end; never written
-  over.
+- `/data` unreadable: no read (a refusal or a pause may be in it), read
+  again every 10 s, one read at a time, without end; never written over.
 - The state text (online, asleep...) is Tessie's current status, not a value
   of the car: published when it changes, without a date (review r1 m9).
 - CI: `timeout-minutes: 20` added to the jobs of `ci.yml` (as the sibling

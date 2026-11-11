@@ -217,6 +217,7 @@ export async function setup({
   start = true,
   getConfig,
   tessie,
+  random = (n) => Buffer.alloc(n, 7),
 } = {}) {
   const logger = memoryLogger();
   const gladys = createFakeGladys({ selector: SELECTOR, config, devices, logger });
@@ -241,7 +242,7 @@ export async function setup({
     now: clock.now,
     monotonic: clock.monotonic,
     timers: clock.timers,
-    random: (n) => Buffer.alloc(n, 7),
+    random,
   });
   registerHandlers(gladys, app, logger);
   gladys.handleShutdown(() => app.stop());

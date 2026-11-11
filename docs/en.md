@@ -60,9 +60,9 @@ Gladys shows an error saying what was sent and what goes on.
 It is not sent when:
 
 - no valid token is configured yet (it waits up to 3 minutes for one);
-- the integration's `/data` folder cannot be read (the key of the car ids is
-  in it; it waits up to 3 minutes);
-- the car is no longer in the Tessie account;
+- the car is no longer in the Tessie account (when the key of the car ids was
+  lost, the only car of the account is locked if Gladys has a single Tessie
+  car);
 - Tessie refuses the command (401, 403 or another 4xx than 429): it is not tried
   again;
 - the 3 tries are used up, or the 3 minutes are over.
@@ -88,14 +88,19 @@ value shown. The navigation (destination), speed and heading are never read.
   wait doubling up to 1 hour.
 - **The configuration could not be read from Gladys**: tried again, spaced,
   without end.
-- **The /data folder cannot be read**: the reads wait (the key of the car ids
-  and a stop may be saved in it), tried again every 10 s, without end.
+- **The /data folder cannot be read**: the reads wait (a stop may be saved in
+  it), tried again every 10 s, without end. The lock still goes.
+- **The /data folder cannot be written** (at the end of "Connected"): the
+  reads go on; pauses and pending locks are not kept across a restart.
 
 ## Privacy
 
 The token and the VIN are never written to the logs, the status, nor the
 integration's `/data` folder; the logs name a car by its rank (#1, #2...). A
-car is known to Gladys by a code made from its VIN with a random key kept in
-`/data`: without that key, the VIN cannot be found back from the code. If
-`/data` is lost (integration reinstalled), the key changes and the cars come
-back in Discovery as new devices.
+car is known to Gladys by a code made from its VIN with a random key: without
+that key, the VIN cannot be found back from the code. The key is kept twice,
+in the integration's settings in Gladys (never shown in the form) and in
+`/data`, so losing one of them changes nothing. If both are lost (Gladys
+database restored without them and integration reinstalled), the cars come
+back in Discovery as new devices: the old devices, their history and the
+scenes using them must be moved to the new ones.

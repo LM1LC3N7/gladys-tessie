@@ -253,23 +253,8 @@ export class TessieApp {
     const mono = this.monotonic();
     const memory = normalizeMemory(raw, wall);
     memory.salt ??= this.random(16).toString('hex');
-    if (!memory.idKey) {
-      // A new key (first start, or /data lost): kept on disk before any id is made from it.
-      memory.idKey = this.random(32).toString('hex');
-      const saved = await this.bounded(
-        this.store.save(serializeMemory(memory)).then(
-          () => true,
-          () => false,
-        ),
-        TIMINGS.saveWait,
-      );
-      if (this.stopped || this.memory) return;
-      if (saved !== true) {
-        await this.dataUnavailable();
-        return;
-      }
-    }
     this.memory = memory;
+    this.ensureKey();
     // Locks asked before /data was read are kept in it too.
     for (const entry of this.locks.values()) {
       if (!entry.done && !memory.locks[entry.pid]) {
@@ -306,11 +291,52 @@ export class TessieApp {
     }, TIMINGS.dataRetry);
   }
 
+  /**
+   * The key of the car ids lives in two places: the integration's own config
+   * in Gladys (setConfig, outside the schema, never shown) and /data. The
+   * config wins (it goes with the token and the devices); a key missing in
+   * one place is copied to it; none anywhere (first start) makes a new one,
+   * used at once even if neither copy can be written yet (tried again).
+   * Without the config read, or with /data unreadable and no key in the
+   * config, nothing is decided (a key may be in what was not read).
+   */
+  ensureKey() {
+    if (!this.config || !this.memory) return;
+    const known = this.config.idKey ?? this.memory.idKey;
+    const key = known ?? this.random(32).toString('hex');
+    // A new key: the ids of devices made before (key lost) cannot match.
+    if (this.idKey !== key) this.keyFresh = known === undefined;
+    this.idKey = key;
+    if (this.memory.idKey !== key) {
+      this.memory.idKey = key;
+      this.saveMemory();
+    }
+    if (this.config.idKey !== key && !this.keyPushing) {
+      this.keyPushing = true;
+      Promise.resolve()
+        .then(() => this.gladys.setConfig({ tessie_id_key: key }))
+        .then(
+          () => {
+            if (this.config) this.config.idKey = key;
+          },
+          (err) => this.logger.warn(`Id key not kept in Gladys (${err?.status ?? 'error'})`),
+        )
+        .finally(() => {
+          this.keyPushing = false;
+        });
+    }
+  }
+
   saveMemory() {
     if (!this.memory) return Promise.resolve(false);
     return this.store.save(serializeMemory(this.memory)).then(
-      () => true,
+      () => {
+        this.dataUnwritable = false;
+        return true;
+      },
       (err) => {
+        // Never stops a read: said in the status.
+        this.dataUnwritable = true;
         this.logger.warn(`/data not written (${err?.code ?? err?.message ?? 'error'})`);
         return false;
       },
@@ -426,6 +452,7 @@ export class TessieApp {
   /** Puts the next read at its place (interval, pause), or says why there is none. */
   kick() {
     if (this.stopped || !this.config || !this.memory) return;
+    this.ensureKey();
     if (this.config.problem) {
       this.timers.clearTimeout(this.pollTimer);
       this.pollTimer = undefined;
@@ -484,6 +511,7 @@ export class TessieApp {
       this.stopped ||
       !this.config ||
       !this.memory ||
+      !this.idKey ||
       this.config.problem ||
       (!test && this.isRefused()) ||
       (this.pauseUntil !== undefined && this.pauseUntil > mono)
@@ -596,7 +624,7 @@ export class TessieApp {
     for (const entry of res.body.results.slice(0, 100)) {
       const parsed = parseVehicle(entry, this.config);
       if (!parsed) continue;
-      const pid = platformId(this.memory.idKey, parsed.vin);
+      const pid = platformId(this.idKey, parsed.vin);
       if (cars.has(pid)) continue;
       if (cars.size >= LIMITS.vehicles) {
         ignored += 1;
@@ -623,7 +651,11 @@ export class TessieApp {
     }
     await this.bounded(this.saveMemory(), TIMINGS.saveWait);
     if (gen === this.generation) {
-      await this.setStatus('connected', { count: cars.size, ignored });
+      await this.setStatus('connected', {
+        count: cars.size,
+        ignored,
+        unwritable: this.dataUnwritable === true,
+      });
     }
     return cars.size;
   }
@@ -941,9 +973,9 @@ export class TessieApp {
         await this.readConfig();
         if (entry.done || this.stopped) return;
       }
-      if (!this.config?.token || !this.memory) {
-        // Kept until a token and /data (the ids of the cars) are read (resumeLocks), within its window.
-        this.logger.warn(this.memory ? LOCK.noToken : LOCK.noData);
+      if (!this.config?.token) {
+        // Kept until a token is read (resumeLocks), within its window. Never waits for /data.
+        this.logger.warn(LOCK.noToken);
         entry.waiting = true;
         this.timers.clearTimeout(entry.timer);
         entry.timer = this.timers.setTimeout(
@@ -1042,21 +1074,37 @@ export class TessieApp {
       return undefined;
     }
     const results = Array.isArray(res.body?.results) ? res.body.results.slice(0, 100) : [];
-    for (const entry of results) {
-      const parsed = parseVehicle(entry, this.config);
-      if (parsed && platformId(this.memory.idKey, parsed.vin) === pid) {
-        const car = {
-          pid,
-          vin: parsed.vin,
-          name: parsed.name,
-          model: parsed.model,
-          snap: parsed,
-          date: res.date,
-        };
-        // Kept for the next commands (the next read replaces it); nothing published from it.
-        if (!this.cars.has(pid) && this.cars.size < LIMITS.vehicles) this.cars.set(pid, car);
-        return car;
+    const parsedAll = results.map((entry) => parseVehicle(entry, this.config)).filter(Boolean);
+    // The key of the ids (config or /data); without it, or without a match (key lost), one
+    // car in the account and one Tessie device in Gladys make an unambiguous pair.
+    let parsed = this.idKey
+      ? parsedAll.find((p) => platformId(this.idKey, p.vin) === pid)
+      : undefined;
+    // Only when the key is unknown or new: with a known key, no match is another car.
+    if (
+      !parsed &&
+      (!this.idKey || this.keyFresh) &&
+      parsedAll.length === 1 &&
+      this.created.size === 1
+    ) {
+      const [only] = this.created;
+      if (only === `${this.prefix()}${pid}`) {
+        parsed = parsedAll[0];
+        this.logger.warn('Lock: car matched as the only car of the account and of Gladys');
       }
+    }
+    if (parsed) {
+      const car = {
+        pid,
+        vin: parsed.vin,
+        name: parsed.name,
+        model: parsed.model,
+        snap: parsed,
+        date: res.date,
+      };
+      // Kept for the next commands (the next read replaces it); nothing published from it.
+      if (!this.cars.has(pid) && this.cars.size < LIMITS.vehicles) this.cars.set(pid, car);
+      return car;
     }
     return null;
   }

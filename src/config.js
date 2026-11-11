@@ -49,7 +49,14 @@ export function normalizeConfig(raw) {
           TIMINGS.pollMax,
         )
       : TIMINGS.pollDefault;
+  // The key of the car ids, kept by the integration itself (setConfig, outside the schema,
+  // never shown in the form): not a secret of the user.
+  const idKey =
+    typeof config.tessie_id_key === 'string' && /^[0-9a-f]{64}$/.test(config.tessie_id_key)
+      ? config.tessie_id_key
+      : undefined;
   return {
+    idKey,
     token,
     interval,
     publishPosition: bool(config.publish_position, DEFAULT_CONFIG.publish_position),

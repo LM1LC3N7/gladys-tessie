@@ -65,9 +65,9 @@ Elle ne part pas quand :
 
 - aucun jeton valide n'est encore configuré (elle en attend un 3 minutes au
   plus) ;
-- le dossier `/data` de l'intégration est illisible (la clé des identifiants
-  des voitures y est ; elle attend 3 minutes au plus) ;
-- la voiture n'est plus dans le compte Tessie ;
+- la voiture n'est plus dans le compte Tessie (si la clé des identifiants est
+  perdue, la seule voiture du compte est verrouillée quand Gladys n'a qu'une
+  voiture Tessie) ;
 - Tessie refuse la commande (401, 403 ou autre 4xx que 429) : elle n'est pas
   réessayée ;
 - les 3 essais sont épuisés, ou les 3 minutes passées.
@@ -95,15 +95,22 @@ fonctionnalité texte avec la latitude et la longitude arrondies à 3 décimales
   tard, l'attente doublant jusqu'à 1 heure.
 - **La configuration n'a pas pu être lue depuis Gladys** : nouvel essai,
   espacé, sans fin.
-- **Le dossier /data est illisible** : les lectures attendent (la clé des
-  identifiants des voitures et un arrêt peuvent y être enregistrés), nouvel
-  essai toutes les 10 s, sans fin.
+- **Le dossier /data est illisible** : les lectures attendent (un arrêt peut y
+  être enregistré), nouvel essai toutes les 10 s, sans fin. Le verrouillage
+  part quand même.
+- **Le dossier /data n'est pas inscriptible** (à la fin de « Connecté ») : les
+  lectures continuent ; pauses et verrouillages en attente ne sont pas gardés
+  après un redémarrage.
 
 ## Vie privée
 
 Le jeton et le VIN ne sont jamais écrits dans les journaux, le statut, ni le
 dossier `/data` de l'intégration ; les journaux nomment une voiture par son
 rang (#1, #2...). Gladys connaît une voiture par un code tiré de son VIN avec
-une clé aléatoire gardée dans `/data` : sans cette clé, le VIN ne se retrouve
-pas depuis le code. Si `/data` est perdu (intégration réinstallée), la clé
-change et les voitures reviennent dans Découverte comme de nouveaux appareils.
+une clé aléatoire : sans cette clé, le VIN ne se retrouve pas depuis le code.
+La clé est gardée deux fois, dans les réglages de l'intégration dans Gladys
+(jamais affichée dans le formulaire) et dans `/data` : en perdre une ne change
+rien. Si les deux sont perdues (base Gladys restaurée sans elle et intégration
+réinstallée), les voitures reviennent dans Découverte comme de nouveaux
+appareils : les anciens, leur historique et les scènes qui les utilisent sont
+à reporter sur les nouveaux.
